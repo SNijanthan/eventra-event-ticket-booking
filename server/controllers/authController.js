@@ -1,4 +1,5 @@
 const bcrypt = require("bcrypt");
+const jwt = require("jsonwebtoken");
 
 const { User } = require("../model/User.model.js");
 const { hashPassword } = require("../utils/hashPassword.js");
@@ -8,12 +9,22 @@ exports.registerUser = async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        status: false,
+        message: "All fields are required",
+      });
+    }
+
     // ! Checking if the user email is already present or not
 
     const existingUser = await User.findOne({ email });
 
     if (existingUser) {
-      throw new Error("User already exists");
+      return res.status(400).json({
+        status: false,
+        message: "User already exists",
+      });
     }
 
     // ! Hashing password
@@ -24,13 +35,25 @@ exports.registerUser = async (req, res) => {
 
     await user.save();
 
+    // ! Generating OTP
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    console.log(`OTP for ${email}: ${otp}`);
+
     res.status(201).json({
       status: true,
       message: "User added successfully",
-      data: req.body,
+      data: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+      },
     });
   } catch (error) {
-    res.status(400).send(`Error: ${error.message}`);
+    res.status(500).json({
+      status: false,
+      message: "Server error",
+    });
   }
 };
 
@@ -40,27 +63,55 @@ exports.loginUser = async (req, res) => {
     const { email, password } = req.body;
 
     if (!email || !password) {
-      throw new Error("Fields cannot be empty");
+      return res.status(400).json({
+        status: false,
+        message: "Email and password are required",
+      });
     }
 
     const existingUser = await User.findOne({ email });
 
     if (!existingUser) {
-      throw new Error("Incorrect credentials, Try again..!, Email wrong");
+      return res.status(400).json({
+        status: false,
+        message: "Invalid credentials",
+      });
     }
 
-    const checkPassword = await bcrypt.compare(password, existingUser.password);
+    const isPasswordValid = await bcrypt.compare(
+      password,
+      existingUser.password,
+    );
 
-    if (!checkPassword) {
-      throw new Error("Incorrect credentials, Try again..!, Password wrong");
+    if (!isPasswordValid) {
+      return res.status(400).json({
+        status: false,
+        message: "Invalid credentials",
+      });
     }
+
+    const token = jwt.sign(
+      { _id: existingUser._id },
+      process.env.JWT_SECRET_KEY,
+      {
+        expiresIn: "2d",
+      },
+    );
+
+    res.cookie("token", token, {
+      httpOnly: true,
+      secure: true,
+    });
 
     res.status(200).json({
       status: true,
-      message: "User logged in successfully",
+      message: "Login successful",
     });
   } catch (error) {
-    res.status(400).send(`Error: ${error.message}`);
+    res.status(500).json({
+      status: false,
+      message: "Server error",
+    });
   }
 };
 
